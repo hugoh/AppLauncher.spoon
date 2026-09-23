@@ -112,27 +112,27 @@ local function raiseWindows(app)
 	end
 end
 
-local function focus(app)
+local function focus(app, m)
 	app:activate(true)
-	raiseWindows(app)
+	if m.raiseWindows then raiseWindows(app) end
 end
 
-local function openApp(appName, forceOpen, done)
-	if forceOpen then
-		hs.application.launchOrFocus(appName)
+local function openApp(m, done)
+	if m.forceOpen then
+		hs.application.launchOrFocus(m.app)
 		return done()
 	end
 
-	local app = hs.application.find(appName, true)
+	local app = hs.application.find(m.app, true)
 	if app then
-		focus(app)
+		focus(app, m)
 		return done()
 	end
 
-	hs.application.launchOrFocus(appName)
+	hs.application.launchOrFocus(m.app)
 	hs.timer.doAfter(LAUNCH_SETTLE_DELAY, function()
-		local launchedApp = hs.application.find(appName, true)
-		if launchedApp then focus(launchedApp) end
+		local launchedApp = hs.application.find(m.app, true)
+		if launchedApp then focus(launchedApp, m) end
 		done()
 	end)
 end
@@ -159,7 +159,7 @@ function obj:_launch(m, mods)
 	elseif m.open then
 		hs.task.new("/usr/bin/open", asyncDone, { m.open }):start()
 	elseif m.app then
-		openApp(m.app, m.forceOpen or false, asyncDone)
+		openApp(m, asyncDone)
 	end
 end
 
@@ -189,7 +189,10 @@ end
 ---  * mods - a table of modifier keys shared by all mappings, e.g. `{ "ctrl", "alt", "cmd" }`
 ---  * mappings - a list of tables, each with a `key` and one action:
 ---    * `app` - name of an app to focus, launching it if needed; set `forceOpen = true`
----      to always go through `hs.application.launchOrFocus`
+---      to always go through `hs.application.launchOrFocus`; activating brings all
+---      of the app's windows forward, and `raiseWindows = true` also raises each
+---      window individually (off by default: it can take ~150 ms per window in
+---      some apps, e.g. Electron ones, blocking Hammerspoon meanwhile)
 ---    * `open` - a file, folder or URL passed to `/usr/bin/open`
 ---    * `func` - a function to call; with `async = true` it receives a `done`
 ---      callback to call when finished; the action counts as running until then

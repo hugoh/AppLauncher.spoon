@@ -192,7 +192,7 @@ describe("registerMappings", function()
 end)
 
 describe("app mappings", function()
-	it("activates a running app and raises its windows from the hotkey callback", function()
+	it("activates a running app from the hotkey callback without raising its windows", function()
 		local slack = makeApp(2)
 		mock_hs._apps.Slack = slack
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
@@ -200,8 +200,31 @@ describe("app mappings", function()
 		press("s")
 
 		assert.are.same({ true }, slack._activated)
-		assert.are.equal(2, slack._raised)
+		assert.are.equal(0, slack._raised)
 		assert.are.same({}, mock_hs._launched)
+	end)
+
+	it("also raises each window when raiseWindows is true", function()
+		local slack = makeApp(2)
+		mock_hs._apps.Slack = slack
+		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack", raiseWindows = true } })
+
+		press("s")
+
+		assert.are.same({ true }, slack._activated)
+		assert.are.equal(2, slack._raised)
+	end)
+
+	it("raises windows after a launch too when raiseWindows is true", function()
+		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack", raiseWindows = true } })
+
+		press("s")
+		local slack = makeApp(2)
+		mock_hs._apps.Slack = slack
+		mock_hs._advance(1)
+
+		assert.are.same({ true }, slack._activated)
+		assert.are.equal(2, slack._raised)
 	end)
 
 	it("launches an app that isn't running, then activates it once it's up", function()
