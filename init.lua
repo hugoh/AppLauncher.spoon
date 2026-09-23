@@ -43,6 +43,14 @@ obj.actionTimeout = 10
 
 obj.log = hs.logger.new("AppLauncher", "info")
 
+--- AppLauncher:init()
+--- Method
+--- Called automatically by `hs.loadSpoon()`. Logs the loaded version.
+function obj:init()
+	self.log.f("Loaded %s v%s", self.name, self.version)
+	return self
+end
+
 -- Seconds to wait after launching an app before activating it.
 local LAUNCH_SETTLE_DELAY = 1
 
