@@ -1,0 +1,14 @@
+---
+name: semantic-pr
+
+on: # yamllint disable-line rule:truthy
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  semantic-pr:
+    uses: hugoh/gh-workflows/.github/workflows/semantic-pr.yml@7cbb8fcf3a59c29229d6fd9feb02e46e0a02113a # v1.40.3
+    permissions:
+      pull-requests: read
