@@ -66,7 +66,7 @@ Each mapping has a `key` and one action:
 
 | Field | Action |
 | --- | --- |
-| `app` | Focus the app and raise its windows, launching it first if it isn't running. `forceOpen = true` always goes through `hs.application.launchOrFocus` instead. |
+| `app` | Focus the app, bringing all its windows forward, and launch it first if it isn't running. `forceOpen = true` always goes through `hs.application.launchOrFocus` instead. `raiseWindows = true` also raises each window individually, e.g. if some don't come forward; it's off by default because it can be slow in some apps (about 150 ms per window in Obsidian), and Hammerspoon is blocked meanwhile. |
 | `open` | Pass a file, folder or URL to `/usr/bin/open`. |
 | `func` | Call a function. With `async = true`, it receives a `done` callback to call when finished. |
 | `label` | Optional name for a `func` mapping, used in logs and alerts. |
