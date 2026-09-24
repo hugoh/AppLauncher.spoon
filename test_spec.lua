@@ -379,7 +379,7 @@ describe("action timeout", function()
 		mock_hs._advance(AppLauncher.actionTimeout)
 		assert.is_false(indicatorShown())
 		assert.are.same(
-			{ "Key ctrl+alt+cmd+m (Stuck) still running after 10 s; no longer tracked" },
+			{ "Key ctrl+alt+cmd+m (Stuck) still running after 5 s; no longer tracked" },
 			AppLauncher.log._warnings
 		)
 	end)

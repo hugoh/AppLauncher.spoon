@@ -38,8 +38,8 @@ obj.indicatorDelay = 0.2
 --- Variable
 --- Seconds after which an action that hasn't finished (e.g. an `async`
 --- function that never calls `done`) stops counting as running, so the
---- indicator can't get stuck; `false` to wait forever (default: 10).
-obj.actionTimeout = 10
+--- indicator can't get stuck; `false` to wait forever (default: 5).
+obj.actionTimeout = 5
 
 --- AppLauncher.logElapsedAbove
 --- Variable
