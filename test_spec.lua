@@ -493,6 +493,98 @@ describe("logging", function()
 	end)
 end)
 
+describe("robustness", function()
+	local function weakly(list) return setmetatable(list, { __mode = "v" }) end
+
+	it("keeps a running open task alive until it exits", function()
+		local tasks = weakly({})
+		mock_hs.task.new = function(_, callback)
+			local task = { _callback = callback }
+			function task:start() return self end
+			table.insert(tasks, task)
+			return task
+		end
+		AppLauncher:registerMappings(HYPER, { { key = "w", open = "https://example.com" } })
+
+		press("w")
+		collectgarbage("collect")
+		assert.is_not_nil(tasks[1])
+
+		tasks[1]._callback(0, "", "")
+		collectgarbage("collect")
+		assert.is_nil(tasks[1])
+	end)
+
+	it("finishes an open action whose task fails to start", function()
+		mock_hs.task.new = function()
+			return { start = function() return false end }
+		end
+		AppLauncher:registerMappings(HYPER, { { key = "w", open = "https://example.com" } })
+
+		press("w")
+		mock_hs._advance(0.2)
+
+		assert.is_false(indicatorShown())
+	end)
+
+	it("keeps the launch settle timer alive until it fires", function()
+		local settles = weakly({})
+		local doAfter = mock_hs.timer.doAfter
+		mock_hs.timer.doAfter = function(delay, fn)
+			local t = doAfter(delay, fn)
+			if delay == 1 then
+				table.remove(mock_hs.timer._pending)
+				table.insert(settles, t)
+			end
+			return t
+		end
+		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
+
+		press("s")
+		collectgarbage("collect")
+		assert.is_not_nil(settles[1])
+
+		settles[1]._fn()
+		collectgarbage("collect")
+		assert.is_nil(settles[1])
+	end)
+
+	it("stops tracking an async func that raises, and re-raises its error", function()
+		AppLauncher:configure({ actionTimeout = false })
+		AppLauncher:registerMappings(HYPER, {
+			{ key = "m", async = true, func = function() error("boom", 0) end },
+		})
+
+		assert.has_error(function() press("m") end, "boom")
+		mock_hs._advance(0.2)
+
+		assert.is_false(indicatorShown())
+	end)
+
+	it("rejects a mapping with no action", function()
+		assert.has_error(
+			function() AppLauncher:registerMappings(HYPER, { { key = "x", async = true } }) end,
+			'AppLauncher: mapping for key "x" needs app, open or func'
+		)
+	end)
+
+	it("survives hs.menubar.new returning nil", function()
+		mock_hs.menubar.new = function() return nil end
+		local finishers = registerAsync("m")
+
+		press("m")
+		mock_hs._advance(0.2)
+		finishers[1]()
+	end)
+
+	it("doesn't fail on a non-numeric logElapsedAbove", function()
+		AppLauncher:configure({ logElapsedAbove = true })
+		AppLauncher:registerMappings(HYPER, { { key = "d", func = function() end } })
+
+		press("d")
+	end)
+end)
+
 describe("init", function()
 	it("logs the loaded version", function()
 		assert.are.equal(AppLauncher, AppLauncher:init())

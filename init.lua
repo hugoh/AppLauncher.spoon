@@ -64,9 +64,16 @@ local pending = 0
 local indicator
 local indicatorTimer
 
+-- Hammerspoon may garbage-collect a running hs.task or hs.timer that nothing
+-- references, silently dropping its callback.
+local inFlight = {}
+
 local function showIndicator()
 	indicatorTimer = nil
-	if pending > 0 then indicator = indicator or hs.menubar.new():setTitle("●") end
+	if pending > 0 and not indicator then
+		local bar = hs.menubar.new()
+		if bar then indicator = bar:setTitle("●") end
+	end
 end
 
 local function busyStart()
@@ -136,11 +143,27 @@ local function openApp(m, done)
 	end
 
 	hs.application.launchOrFocus(m.app)
-	hs.timer.doAfter(LAUNCH_SETTLE_DELAY, function()
+	local settle
+	settle = hs.timer.doAfter(LAUNCH_SETTLE_DELAY, function()
+		inFlight[settle] = nil
 		local launchedApp = hs.application.find(m.app, true)
 		if launchedApp then focus(launchedApp, m) end
 		done()
 	end)
+	inFlight[settle] = true
+end
+
+local function openTarget(m, done)
+	local task
+	task = hs.task.new("/usr/bin/open", function()
+		inFlight[task] = nil
+		done()
+	end, { m.open })
+	if task and task:start() then
+		inFlight[task] = true
+	else
+		done()
+	end
 end
 
 function obj:_launch(m, mods)
@@ -150,7 +173,7 @@ function obj:_launch(m, mods)
 	local started = hs.timer.absoluteTime()
 	local function finished()
 		local elapsed = (hs.timer.absoluteTime() - started) / 1e9
-		if self.logElapsedAbove and elapsed >= self.logElapsedAbove then
+		if type(self.logElapsedAbove) == "number" and elapsed >= self.logElapsedAbove then
 			self.log.f("Key %s done in %.0f ms", chord, elapsed * 1e3)
 		end
 	end
@@ -166,9 +189,13 @@ function obj:_launch(m, mods)
 	end
 
 	if m.func then
-		m.func(asyncDone)
+		local ok, err = pcall(m.func, asyncDone)
+		if not ok then
+			asyncDone()
+			error(err, 0)
+		end
 	elseif m.open then
-		hs.task.new("/usr/bin/open", asyncDone, { m.open }):start()
+		openTarget(m, asyncDone)
 	elseif m.app then
 		openApp(m, asyncDone)
 	end
@@ -213,6 +240,9 @@ end
 ---  * The AppLauncher object, for method chaining
 function obj:registerMappings(mods, mappings)
 	for _, m in ipairs(mappings) do
+		if not (m.app or m.open or m.func) then
+			error(string.format("AppLauncher: mapping for key %q needs app, open or func", tostring(m.key)), 2)
+		end
 		local message = self.notify and mappingName(m) or nil
 		hs.hotkey.bind(mods, m.key, message, function() self:_launch(m, mods) end)
 	end
