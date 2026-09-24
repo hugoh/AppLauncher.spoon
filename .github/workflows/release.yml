@@ -21,6 +21,11 @@ on: # yamllint disable-line rule:truthy
         type: choice
         default: auto
         options: [auto, patch, minor, major]
+      docs_only:
+        description: Regenerate and redeploy the Pages docs only (no bump, no release)
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   release:
@@ -29,3 +34,4 @@ jobs:
       spoon_name: AppLauncher
       tag: ${{ inputs.tag }}
       bump: ${{ inputs.bump }}
+      docs_only: ${{ inputs.docs_only == true }}
