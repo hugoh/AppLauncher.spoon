@@ -80,6 +80,7 @@ hs.loadSpoon("AppLauncher"):configure({
   notify = true,         -- show Hammerspoon's hotkey alert with the mapping's name on each press
   indicatorDelay = 0.2,  -- seconds an action may run before the ● appears; false to never show it
   actionTimeout = 10,    -- seconds before an unfinished action stops counting as running; false to wait forever
+  logElapsedAbove = 0.1, -- seconds an action must take before its elapsed time is logged; 0 always, false never
 }):registerMappings(hyper, mappings)
 ```
 

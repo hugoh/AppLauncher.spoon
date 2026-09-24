@@ -41,6 +41,12 @@ obj.indicatorDelay = 0.2
 --- indicator can't get stuck; `false` to wait forever (default: 10).
 obj.actionTimeout = 10
 
+--- AppLauncher.logElapsedAbove
+--- Variable
+--- Seconds an action must take before its elapsed time is logged, `0` to
+--- always log it, or `false` to never log it (default: 0.1).
+obj.logElapsedAbove = 0.1
+
 obj.log = hs.logger.new("AppLauncher", "info")
 
 --- AppLauncher:init()
@@ -142,7 +148,12 @@ function obj:_launch(m, mods)
 	self.log.f("Key %s received: %s", chord, mappingName(m))
 
 	local started = hs.timer.absoluteTime()
-	local function finished() self.log.f("Key %s done in %.0f ms", chord, (hs.timer.absoluteTime() - started) / 1e6) end
+	local function finished()
+		local elapsed = (hs.timer.absoluteTime() - started) / 1e9
+		if self.logElapsedAbove and elapsed >= self.logElapsedAbove then
+			self.log.f("Key %s done in %.0f ms", chord, elapsed * 1e3)
+		end
+	end
 	if m.func and not m.async then
 		m.func()
 		return finished()
@@ -166,7 +177,7 @@ end
 --- AppLauncher:configure(opts) -> AppLauncher
 --- Method
 --- Sets one or more of AppLauncher's variables (`notify`, `indicatorDelay`,
---- `actionTimeout`) from a table. Call it before `registerMappings`, since `notify`
+--- `actionTimeout`, `logElapsedAbove`) from a table. Call it before `registerMappings`, since `notify`
 --- is read when hotkeys are bound.
 ---
 --- Parameters:
@@ -175,7 +186,7 @@ end
 --- Returns:
 ---  * The AppLauncher object, for method chaining
 function obj:configure(opts)
-	for _, key in ipairs({ "notify", "indicatorDelay", "actionTimeout" }) do
+	for _, key in ipairs({ "notify", "indicatorDelay", "actionTimeout", "logElapsedAbove" }) do
 		if opts[key] ~= nil then self[key] = opts[key] end
 	end
 	return self

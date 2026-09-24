@@ -441,7 +441,7 @@ describe("action timeout", function()
 end)
 
 describe("logging", function()
-	it("logs the chord on receipt and the elapsed time once done", function()
+	it("logs the chord on receipt but not a fast action's elapsed time", function()
 		local finish
 		AppLauncher:registerMappings(HYPER, {
 			{ key = "m", async = true, label = "Mute", func = function(done) finish = done end },
@@ -453,8 +453,43 @@ describe("logging", function()
 
 		assert.are.same({
 			"Key ctrl+alt+cmd+m received: Mute",
-			"Key ctrl+alt+cmd+m done in 42 ms",
 		}, AppLauncher.log._infos)
+	end)
+
+	it("logs the elapsed time only above logElapsedAbove", function()
+		local finish
+		AppLauncher:registerMappings(HYPER, {
+			{ key = "m", async = true, label = "Mute", func = function(done) finish = done end },
+		})
+
+		press("m")
+		mock_hs._now = 150e6
+		finish()
+
+		assert.are.same({
+			"Key ctrl+alt+cmd+m received: Mute",
+			"Key ctrl+alt+cmd+m done in 150 ms",
+		}, AppLauncher.log._infos)
+	end)
+
+	it("always logs the elapsed time with logElapsedAbove = 0", function()
+		AppLauncher:configure({ logElapsedAbove = 0 })
+		AppLauncher:registerMappings(HYPER, { { key = "m", func = function() end } })
+
+		press("m")
+
+		assert.are.equal("Key ctrl+alt+cmd+m done in 0 ms", AppLauncher.log._infos[#AppLauncher.log._infos])
+	end)
+
+	it("never logs the elapsed time with logElapsedAbove = false", function()
+		AppLauncher:configure({ logElapsedAbove = false })
+		local finishers = registerAsync("m")
+
+		press("m")
+		mock_hs._now = 60e9
+		finishers[1]()
+
+		assert.are.same({ "Key ctrl+alt+cmd+m received: function" }, AppLauncher.log._infos)
 	end)
 end)
 
