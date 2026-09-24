@@ -496,25 +496,6 @@ end)
 describe("robustness", function()
 	local function weakly(list) return setmetatable(list, { __mode = "v" }) end
 
-	it("keeps a running open task alive until it exits", function()
-		local tasks = weakly({})
-		mock_hs.task.new = function(_, callback)
-			local task = { _callback = callback }
-			function task:start() return self end
-			table.insert(tasks, task)
-			return task
-		end
-		AppLauncher:registerMappings(HYPER, { { key = "w", open = "https://example.com" } })
-
-		press("w")
-		collectgarbage("collect")
-		assert.is_not_nil(tasks[1])
-
-		tasks[1]._callback(0, "", "")
-		collectgarbage("collect")
-		assert.is_nil(tasks[1])
-	end)
-
 	it("finishes an open action whose task fails to start", function()
 		mock_hs.task.new = function()
 			return { start = function() return false end }

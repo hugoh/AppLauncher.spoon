@@ -64,8 +64,8 @@ local pending = 0
 local indicator
 local indicatorTimer
 
--- Hammerspoon may garbage-collect a running hs.task or hs.timer that nothing
--- references, silently dropping its callback.
+-- Hammerspoon garbage-collects a running hs.timer that nothing references,
+-- and it then never fires.
 local inFlight = {}
 
 local function showIndicator()
@@ -154,16 +154,8 @@ local function openApp(m, done)
 end
 
 local function openTarget(m, done)
-	local task
-	task = hs.task.new("/usr/bin/open", function()
-		inFlight[task] = nil
-		done()
-	end, { m.open })
-	if task and task:start() then
-		inFlight[task] = true
-	else
-		done()
-	end
+	local task = hs.task.new("/usr/bin/open", done, { m.open })
+	if not (task and task:start()) then done() end
 end
 
 function obj:_launch(m, mods)
