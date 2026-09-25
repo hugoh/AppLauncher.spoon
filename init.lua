@@ -38,8 +38,14 @@ obj.indicatorDelay = 0.2
 --- Variable
 --- Seconds after which an action that hasn't finished (e.g. an `async`
 --- function that never calls `done`) stops counting as running, so the
---- indicator can't get stuck; `false` to wait forever (default: 10).
-obj.actionTimeout = 10
+--- indicator can't get stuck; `false` to wait forever (default: 5).
+obj.actionTimeout = 5
+
+--- AppLauncher.logElapsedAbove
+--- Variable
+--- Seconds an action must take before its elapsed time is logged, `0` to
+--- always log it, or `false` to never log it (default: 0.1).
+obj.logElapsedAbove = 0.1
 
 obj.log = hs.logger.new("AppLauncher", "info")
 
@@ -58,9 +64,16 @@ local pending = 0
 local indicator
 local indicatorTimer
 
+-- Hammerspoon garbage-collects a running hs.timer that nothing references,
+-- and it then never fires.
+local inFlight = {}
+
 local function showIndicator()
 	indicatorTimer = nil
-	if pending > 0 then indicator = indicator or hs.menubar.new():setTitle("●") end
+	if pending > 0 and not indicator then
+		local bar = hs.menubar.new()
+		if bar then indicator = bar:setTitle("●") end
+	end
 end
 
 local function busyStart()
@@ -130,11 +143,19 @@ local function openApp(m, done)
 	end
 
 	hs.application.launchOrFocus(m.app)
-	hs.timer.doAfter(LAUNCH_SETTLE_DELAY, function()
+	local settle
+	settle = hs.timer.doAfter(LAUNCH_SETTLE_DELAY, function()
+		inFlight[settle] = nil
 		local launchedApp = hs.application.find(m.app, true)
 		if launchedApp then focus(launchedApp, m) end
 		done()
 	end)
+	inFlight[settle] = true
+end
+
+local function openTarget(m, done)
+	local task = hs.task.new("/usr/bin/open", done, { m.open })
+	if not (task and task:start()) then done() end
 end
 
 function obj:_launch(m, mods)
@@ -142,7 +163,12 @@ function obj:_launch(m, mods)
 	self.log.f("Key %s received: %s", chord, mappingName(m))
 
 	local started = hs.timer.absoluteTime()
-	local function finished() self.log.f("Key %s done in %.0f ms", chord, (hs.timer.absoluteTime() - started) / 1e6) end
+	local function finished()
+		local elapsed = (hs.timer.absoluteTime() - started) / 1e9
+		if type(self.logElapsedAbove) == "number" and elapsed >= self.logElapsedAbove then
+			self.log.f("Key %s done in %.0f ms", chord, elapsed * 1e3)
+		end
+	end
 	if m.func and not m.async then
 		m.func()
 		return finished()
@@ -155,9 +181,13 @@ function obj:_launch(m, mods)
 	end
 
 	if m.func then
-		m.func(asyncDone)
+		local ok, err = pcall(m.func, asyncDone)
+		if not ok then
+			asyncDone()
+			error(err, 0)
+		end
 	elseif m.open then
-		hs.task.new("/usr/bin/open", asyncDone, { m.open }):start()
+		openTarget(m, asyncDone)
 	elseif m.app then
 		openApp(m, asyncDone)
 	end
@@ -166,7 +196,7 @@ end
 --- AppLauncher:configure(opts) -> AppLauncher
 --- Method
 --- Sets one or more of AppLauncher's variables (`notify`, `indicatorDelay`,
---- `actionTimeout`) from a table. Call it before `registerMappings`, since `notify`
+--- `actionTimeout`, `logElapsedAbove`) from a table. Call it before `registerMappings`, since `notify`
 --- is read when hotkeys are bound.
 ---
 --- Parameters:
@@ -175,7 +205,7 @@ end
 --- Returns:
 ---  * The AppLauncher object, for method chaining
 function obj:configure(opts)
-	for _, key in ipairs({ "notify", "indicatorDelay", "actionTimeout" }) do
+	for _, key in ipairs({ "notify", "indicatorDelay", "actionTimeout", "logElapsedAbove" }) do
 		if opts[key] ~= nil then self[key] = opts[key] end
 	end
 	return self
@@ -202,6 +232,9 @@ end
 ---  * The AppLauncher object, for method chaining
 function obj:registerMappings(mods, mappings)
 	for _, m in ipairs(mappings) do
+		if not (m.app or m.open or m.func) then
+			error(string.format("AppLauncher: mapping for key %q needs app, open or func", tostring(m.key)), 2)
+		end
 		local message = self.notify and mappingName(m) or nil
 		hs.hotkey.bind(mods, m.key, message, function() self:_launch(m, mods) end)
 	end

@@ -79,7 +79,8 @@ Tune behaviour with `configure()` before `registerMappings` (all optional):
 hs.loadSpoon("AppLauncher"):configure({
   notify = true,         -- show Hammerspoon's hotkey alert with the mapping's name on each press
   indicatorDelay = 0.2,  -- seconds an action may run before the ● appears; false to never show it
-  actionTimeout = 10,    -- seconds before an unfinished action stops counting as running; false to wait forever
+  actionTimeout = 5,     -- seconds before an unfinished action stops counting as running; false to wait forever
+  logElapsedAbove = 0.1, -- seconds an action must take before its elapsed time is logged; 0 always, false never
 }):registerMappings(hyper, mappings)
 ```
 
@@ -87,7 +88,7 @@ hs.loadSpoon("AppLauncher"):configure({
 
 Hammerspoon draws the menu bar on the same main thread that runs your hotkeys, so the `●` can only appear while that thread is free: while an app is launching, `open` is running, or an async function is waiting on something. Work that blocks the main thread shows nothing. Painting the indicator before every action would mean delaying every action, so AppLauncher shows it only for actions that turn out to be slow.
 
-If an async function never calls `done`, the action stops counting as running after `actionTimeout` and a warning is logged, so the indicator can't get stuck. A `done` that arrives after that still logs the real elapsed time.
+If an async function never calls `done`, the action stops counting as running after `actionTimeout` and a warning is logged, so the indicator can't get stuck. A `done` that arrives after that still logs the real elapsed time, if it exceeds `logElapsedAbove`.
 
 ## Security & Permissions
 
