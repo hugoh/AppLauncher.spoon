@@ -137,8 +137,13 @@ local function openApp(m, done)
 	end
 
 	local app = hs.application.find(m.app, true)
-	if app then
+	if app and app:mainWindow() then
 		focus(app, m)
+		return done()
+	end
+	-- Activating a running app doesn't reopen a window; launchOrFocus does.
+	if app then
+		hs.application.launchOrFocus(m.app)
 		return done()
 	end
 
@@ -220,7 +225,8 @@ end
 ---  * mappings - a list of tables, each with a `key` and one action:
 ---    * `app` - name of an app to focus, launching it if needed; set `forceOpen = true`
 ---      to always go through `hs.application.launchOrFocus`; activating brings all
----      of the app's windows forward, and `raiseWindows = true` also raises each
+---      of the app's windows forward (a running app with no window goes through
+---      `launchOrFocus` so one reopens), and `raiseWindows = true` also raises each
 ---      window individually (off by default: it can take ~150 ms per window in
 ---      some apps, e.g. Electron ones, blocking Hammerspoon meanwhile)
 ---    * `open` - a file, folder or URL passed to `/usr/bin/open`
