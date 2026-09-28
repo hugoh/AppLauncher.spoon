@@ -19,6 +19,7 @@ local function makeApp(windowCount)
 	end
 	function app:activate(allWindows) table.insert(self._activated, allWindows) end
 	function app:allWindows() return self._windows end
+	function app:mainWindow() return self._windows[1] end
 	return app
 end
 
@@ -237,6 +238,19 @@ describe("app mappings", function()
 		mock_hs._apps.Slack = slack
 		mock_hs._advance(1)
 		assert.are.same({ true }, slack._activated)
+	end)
+
+	-- Activating doesn't reopen a window; launchOrFocus sends the reopen event
+	-- that clicking the Dock icon would.
+	it("goes through launchOrFocus for a running app with no windows", function()
+		local slack = makeApp(0)
+		mock_hs._apps.Slack = slack
+		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
+
+		press("s")
+
+		assert.are.same({ "Slack" }, mock_hs._launched)
+		assert.are.same({}, slack._activated)
 	end)
 
 	it("only calls launchOrFocus when forceOpen is set", function()
