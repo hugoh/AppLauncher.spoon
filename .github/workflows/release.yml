@@ -29,7 +29,7 @@ on: # yamllint disable-line rule:truthy
 
 jobs:
   release:
-    uses: hugoh/spoon-tools/.github/workflows/spoon-release.yml@90f65984c8d08b7cda0d8b397d84ce736d62e11d # v1.4.1
+    uses: hugoh/spoon-tools/.github/workflows/spoon-release.yml@526f112bfc511e4429d394619e7243465c30c8ba # v1.5.0
     with:
       spoon_name: AppLauncher
       tag: ${{ inputs.tag }}
