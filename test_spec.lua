@@ -1,16 +1,12 @@
--- Busted tests for the AppLauncher Spoon using a mock hs environment.
+-- Busted tests for the AppLauncher Spoon using the shared hs_mock from spoon-tools.
 
-local mock_hs
+local hs_mock = require("hs_mock")
+
+local ctl
 local AppLauncher
+local launched
 
 local HYPER = { "ctrl", "alt", "cmd" }
-
-local function makeLogger()
-	local l = { _infos = {}, _warnings = {} }
-	l.f = function(fmt, ...) table.insert(l._infos, string.format(fmt, ...)) end
-	l.wf = function(fmt, ...) table.insert(l._warnings, string.format(fmt, ...)) end
-	return l
-end
 
 local function makeApp(windowCount)
 	local app = { _activated = {}, _raised = 0, _windows = {} }
@@ -24,110 +20,31 @@ local function makeApp(windowCount)
 end
 
 before_each(function()
-	local timers = {}
-	mock_hs = {
-		_now = 0,
-		_hotkeys = {},
-		_apps = {},
-		_launched = {},
-		_tasks = {},
-		_menubars = {},
-	}
-	mock_hs.logger = { new = function() return makeLogger() end }
+	local hs
+	hs, ctl = hs_mock.new()
+	_G.hs = hs
 
-	mock_hs.timer = {
-		_pending = timers,
-		absoluteTime = function() return mock_hs._now end,
-		doAfter = function(delay, fn)
-			local t = { _delay = delay, _fn = fn, _stopped = false }
-			function t:stop() self._stopped = true end
-			table.insert(timers, t)
-			return t
-		end,
-	}
-	-- Fire pending timers in the order they were scheduled, skipping stopped
-	-- ones; callbacks may schedule more.
-	mock_hs._fireTimers = function()
-		while #timers > 0 do
-			local t = table.remove(timers, 1)
-			if not t._stopped then t._fn() end
-		end
+	launched = {}
+	hs.application.launchOrFocus = function(name) table.insert(launched, name) end
+	local find = hs.application.find
+	hs.application.find = function(name, exact)
+		assert.is_true(exact, "application lookup must be exact")
+		return find(name)
 	end
-	-- Fire, in scheduling order, every live timer due within `seconds`
-	-- (delays are treated as relative to the press).
-	mock_hs._advance = function(seconds)
-		local fired = true
-		while fired do
-			fired = false
-			for i, t in ipairs(timers) do
-				if not t._stopped and t._delay <= seconds then
-					table.remove(timers, i)
-					t._fn()
-					fired = true
-					break
-				end
-			end
-		end
-	end
-	mock_hs._liveTimers = function()
-		local live = {}
-		for _, t in ipairs(timers) do
-			if not t._stopped then table.insert(live, t) end
-		end
-		return live
-	end
-
-	mock_hs.hotkey = {
-		bind = function(mods, key, message, fn)
-			local hk = { _mods = mods, _key = key, _message = message, _fn = fn }
-			mock_hs._hotkeys[key] = hk
-			return hk
-		end,
-	}
-
-	mock_hs.application = {
-		find = function(name, exact)
-			assert.is_true(exact, "application lookup must be exact")
-			return mock_hs._apps[name]
-		end,
-		launchOrFocus = function(name) table.insert(mock_hs._launched, name) end,
-	}
-
-	mock_hs.task = {
-		new = function(path, callback, args)
-			local task = { _path = path, _callback = callback, _args = args, _started = false }
-			function task:start()
-				self._started = true
-				return self
-			end
-			table.insert(mock_hs._tasks, task)
-			return task
-		end,
-	}
-
-	mock_hs.menubar = {
-		new = function()
-			local bar = { _deleted = false }
-			function bar:setTitle(title)
-				self._title = title
-				return self
-			end
-			function bar:delete() self._deleted = true end
-			table.insert(mock_hs._menubars, bar)
-			return bar
-		end,
-	}
-
-	package.loaded.hs = nil
-	_G.hs = mock_hs
 
 	AppLauncher = dofile("init.lua")
 end)
 
-local function press(key) mock_hs._hotkeys[key]._fn() end
+local function hotkey(key)
+	for i = #ctl.hotkeys, 1, -1 do
+		if ctl.hotkeys[i].key == key then return ctl.hotkeys[i] end
+	end
+end
+
+local function press(key) hotkey(key).pressed() end
 
 local function indicatorShown()
-	local bar = mock_hs._menubars[#mock_hs._menubars]
+	local bar = ctl.menubars[#ctl.menubars]
 	return bar ~= nil and not bar._deleted
 end
 
@@ -167,13 +84,13 @@ end)
 describe("registerMappings", function()
 	it("binds each mapping's key with the given modifiers", function()
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" }, { key = "n", app = "Obsidian" } })
-		assert.are.same(HYPER, mock_hs._hotkeys.s._mods)
-		assert.is_truthy(mock_hs._hotkeys.n)
+		assert.are.same(HYPER, hotkey("s").mods)
+		assert.is_truthy(hotkey("n"))
 	end)
 
 	it("shows no hotkey alert unless notify is set", function()
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
-		assert.is_nil(mock_hs._hotkeys.s._message)
+		assert.is_nil(hotkey("s").message)
 	end)
 
 	it("shows the mapping's name as the hotkey alert when notify is set", function()
@@ -182,8 +99,8 @@ describe("registerMappings", function()
 			{ key = "s", app = "Slack" },
 			{ key = "d", func = function() end, label = "My Day" },
 		})
-		assert.are.equal("Slack", mock_hs._hotkeys.s._message)
-		assert.are.equal("My Day", mock_hs._hotkeys.d._message)
+		assert.are.equal("Slack", hotkey("s").message)
+		assert.are.equal("My Day", hotkey("d").message)
 	end)
 
 	it(
@@ -195,19 +112,19 @@ end)
 describe("app mappings", function()
 	it("activates a running app from the hotkey callback without raising its windows", function()
 		local slack = makeApp(2)
-		mock_hs._apps.Slack = slack
+		ctl.apps.Slack = slack
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
 
 		press("s")
 
 		assert.are.same({ true }, slack._activated)
 		assert.are.equal(0, slack._raised)
-		assert.are.same({}, mock_hs._launched)
+		assert.are.same({}, launched)
 	end)
 
 	it("also raises each window when raiseWindows is true", function()
 		local slack = makeApp(2)
-		mock_hs._apps.Slack = slack
+		ctl.apps.Slack = slack
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack", raiseWindows = true } })
 
 		press("s")
@@ -221,8 +138,8 @@ describe("app mappings", function()
 
 		press("s")
 		local slack = makeApp(2)
-		mock_hs._apps.Slack = slack
-		mock_hs._advance(1)
+		ctl.apps.Slack = slack
+		ctl.advance(1)
 
 		assert.are.same({ true }, slack._activated)
 		assert.are.equal(2, slack._raised)
@@ -232,11 +149,11 @@ describe("app mappings", function()
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
 
 		press("s")
-		assert.are.same({ "Slack" }, mock_hs._launched)
+		assert.are.same({ "Slack" }, launched)
 
 		local slack = makeApp()
-		mock_hs._apps.Slack = slack
-		mock_hs._advance(1)
+		ctl.apps.Slack = slack
+		ctl.advance(1)
 		assert.are.same({ true }, slack._activated)
 	end)
 
@@ -244,23 +161,23 @@ describe("app mappings", function()
 	-- that clicking the Dock icon would.
 	it("goes through launchOrFocus for a running app with no windows", function()
 		local slack = makeApp(0)
-		mock_hs._apps.Slack = slack
+		ctl.apps.Slack = slack
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
 
 		press("s")
 
-		assert.are.same({ "Slack" }, mock_hs._launched)
+		assert.are.same({ "Slack" }, launched)
 		assert.are.same({}, slack._activated)
 	end)
 
 	it("only calls launchOrFocus when forceOpen is set", function()
 		local slack = makeApp()
-		mock_hs._apps.Slack = slack
+		ctl.apps.Slack = slack
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack", forceOpen = true } })
 
 		press("s")
 
-		assert.are.same({ "Slack" }, mock_hs._launched)
+		assert.are.same({ "Slack" }, launched)
 		assert.are.same({}, slack._activated)
 	end)
 end)
@@ -271,10 +188,10 @@ describe("open mappings", function()
 
 		press("w")
 
-		local task = mock_hs._tasks[1]
+		local task = ctl.tasks[1]
 		assert.are.equal("/usr/bin/open", task._path)
 		assert.are.same({ "https://example.com" }, task._args)
-		assert.is_true(task._started)
+		assert.is_true(task:isRunning())
 	end)
 end)
 
@@ -286,7 +203,7 @@ describe("func mappings", function()
 		press("d")
 
 		assert.are.equal(1, calls)
-		assert.are.same({}, mock_hs._liveTimers())
+		assert.are.same({}, ctl.timers())
 	end)
 
 	it("calls an async func straight away with a done callback", function()
@@ -300,23 +217,23 @@ end)
 
 describe("slow-action indicator", function()
 	it("never appears for an action that finishes before indicatorDelay", function()
-		mock_hs._apps.Slack = makeApp()
+		ctl.apps.Slack = makeApp()
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
 
 		press("s")
-		mock_hs._fireTimers()
+		ctl.flush()
 
-		assert.are.equal(0, #mock_hs._menubars)
+		assert.are.equal(0, #ctl.menubars)
 	end)
 
 	it("appears after indicatorDelay while an action is still running, and goes once it's done", function()
 		local finishers = registerAsync("m")
 
 		press("m")
-		assert.are.equal(0.2, mock_hs._liveTimers()[1]._delay)
-		assert.are.equal(0, #mock_hs._menubars)
+		assert.are.equal(0.2, ctl.timers()[1]:nextTrigger())
+		assert.are.equal(0, #ctl.menubars)
 
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 		assert.is_true(indicatorShown())
 
 		finishers[1]()
@@ -327,11 +244,11 @@ describe("slow-action indicator", function()
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
 
 		press("s")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 		assert.is_true(indicatorShown())
 
-		mock_hs._apps.Slack = makeApp()
-		mock_hs._advance(1)
+		ctl.apps.Slack = makeApp()
+		ctl.advance(1)
 		assert.is_false(indicatorShown())
 	end)
 
@@ -339,10 +256,10 @@ describe("slow-action indicator", function()
 		AppLauncher:registerMappings(HYPER, { { key = "w", open = "https://example.com" } })
 
 		press("w")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 		assert.is_true(indicatorShown())
 
-		mock_hs._tasks[1]._callback(0, "", "")
+		ctl.tasks[1]:complete(0, "", "")
 		assert.is_false(indicatorShown())
 	end)
 
@@ -351,8 +268,8 @@ describe("slow-action indicator", function()
 
 		press("m")
 		press("m")
-		mock_hs._advance(0.2)
-		assert.are.equal(1, #mock_hs._menubars)
+		ctl.advance(0.2)
+		assert.are.equal(1, #ctl.menubars)
 
 		finishers[1]()
 		assert.is_true(indicatorShown())
@@ -366,7 +283,7 @@ describe("slow-action indicator", function()
 		press("m")
 		finishers[1]()
 
-		assert.are.same({}, mock_hs._liveTimers())
+		assert.are.same({}, ctl.timers())
 	end)
 
 	it("is never shown when indicatorDelay is false", function()
@@ -374,9 +291,9 @@ describe("slow-action indicator", function()
 		registerAsync("m")
 
 		press("m")
-		mock_hs._advance(1)
+		ctl.advance(1)
 
-		assert.are.equal(0, #mock_hs._menubars)
+		assert.are.equal(0, #ctl.menubars)
 	end)
 end)
 
@@ -387,14 +304,14 @@ describe("action timeout", function()
 		})
 
 		press("m")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 		assert.is_true(indicatorShown())
 
-		mock_hs._advance(AppLauncher.actionTimeout)
+		ctl.advance(AppLauncher.actionTimeout)
 		assert.is_false(indicatorShown())
 		assert.are.same(
 			{ "Key ctrl+alt+cmd+m (Stuck) still running after 5 s; no longer tracked" },
-			AppLauncher.log._warnings
+			ctl.logged("warning")
 		)
 	end)
 
@@ -402,9 +319,9 @@ describe("action timeout", function()
 		AppLauncher:registerMappings(HYPER, { { key = "m", async = true, func = function() end } })
 
 		press("m")
-		mock_hs._fireTimers()
+		ctl.flush()
 		press("m")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 
 		assert.is_true(indicatorShown())
 	end)
@@ -413,9 +330,9 @@ describe("action timeout", function()
 		local finishers = registerAsync("m")
 
 		press("m")
-		mock_hs._fireTimers()
+		ctl.flush()
 		press("m")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 
 		finishers[1]()
 		assert.is_true(indicatorShown())
@@ -427,11 +344,11 @@ describe("action timeout", function()
 		local finishers = registerAsync("m")
 
 		press("m")
-		mock_hs._fireTimers()
-		mock_hs._now = 12e9
+		ctl.flush()
+		ctl.now = 12
 		finishers[1]()
 
-		assert.are.equal("Key ctrl+alt+cmd+m done in 12000 ms", AppLauncher.log._infos[#AppLauncher.log._infos])
+		assert.are.equal("Key ctrl+alt+cmd+m done in 12000 ms", ctl.logged("info")[#ctl.logged("info")])
 	end)
 
 	it("is cancelled when the action finishes in time", function()
@@ -440,7 +357,7 @@ describe("action timeout", function()
 		press("m")
 		finishers[1]()
 
-		assert.are.same({}, mock_hs._liveTimers())
+		assert.are.same({}, ctl.timers())
 	end)
 
 	it("can be turned off with false", function()
@@ -448,7 +365,7 @@ describe("action timeout", function()
 		registerAsync("m")
 
 		press("m")
-		mock_hs._fireTimers()
+		ctl.flush()
 
 		assert.is_true(indicatorShown())
 	end)
@@ -462,12 +379,12 @@ describe("logging", function()
 		})
 
 		press("m")
-		mock_hs._now = 42e6
+		ctl.now = 0.042
 		finish()
 
 		assert.are.same({
 			"Key ctrl+alt+cmd+m received: Mute",
-		}, AppLauncher.log._infos)
+		}, ctl.logged("info"))
 	end)
 
 	it("logs the elapsed time only above logElapsedAbove", function()
@@ -477,13 +394,13 @@ describe("logging", function()
 		})
 
 		press("m")
-		mock_hs._now = 150e6
+		ctl.now = 0.15
 		finish()
 
 		assert.are.same({
 			"Key ctrl+alt+cmd+m received: Mute",
 			"Key ctrl+alt+cmd+m done in 150 ms",
-		}, AppLauncher.log._infos)
+		}, ctl.logged("info"))
 	end)
 
 	it("always logs the elapsed time with logElapsedAbove = 0", function()
@@ -492,7 +409,7 @@ describe("logging", function()
 
 		press("m")
 
-		assert.are.equal("Key ctrl+alt+cmd+m done in 0 ms", AppLauncher.log._infos[#AppLauncher.log._infos])
+		assert.are.equal("Key ctrl+alt+cmd+m done in 0 ms", ctl.logged("info")[#ctl.logged("info")])
 	end)
 
 	it("never logs the elapsed time with logElapsedAbove = false", function()
@@ -500,10 +417,10 @@ describe("logging", function()
 		local finishers = registerAsync("m")
 
 		press("m")
-		mock_hs._now = 60e9
+		ctl.now = 60
 		finishers[1]()
 
-		assert.are.same({ "Key ctrl+alt+cmd+m received: function" }, AppLauncher.log._infos)
+		assert.are.same({ "Key ctrl+alt+cmd+m received: function" }, ctl.logged("info"))
 	end)
 end)
 
@@ -511,26 +428,23 @@ describe("robustness", function()
 	local function weakly(list) return setmetatable(list, { __mode = "v" }) end
 
 	it("finishes an open action whose task fails to start", function()
-		mock_hs.task.new = function()
+		hs.task.new = function()
 			return { start = function() return false end }
 		end
 		AppLauncher:registerMappings(HYPER, { { key = "w", open = "https://example.com" } })
 
 		press("w")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 
 		assert.is_false(indicatorShown())
 	end)
 
 	it("keeps the launch settle timer alive until it fires", function()
 		local settles = weakly({})
-		local doAfter = mock_hs.timer.doAfter
-		mock_hs.timer.doAfter = function(delay, fn)
-			local t = doAfter(delay, fn)
-			if delay == 1 then
-				table.remove(mock_hs.timer._pending)
-				table.insert(settles, t)
-			end
+		-- A stub the mock doesn't track, so only AppLauncher can keep it alive.
+		hs.timer.doAfter = function(delay, fn)
+			local t = { _fn = fn, stop = function() end }
+			if delay == 1 then table.insert(settles, t) end
 			return t
 		end
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
@@ -551,7 +465,7 @@ describe("robustness", function()
 		})
 
 		assert.has_error(function() press("m") end, "boom")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 
 		assert.is_false(indicatorShown())
 	end)
@@ -564,11 +478,11 @@ describe("robustness", function()
 	end)
 
 	it("survives hs.menubar.new returning nil", function()
-		mock_hs.menubar.new = function() return nil end
+		hs.menubar.new = function() return nil end
 		local finishers = registerAsync("m")
 
 		press("m")
-		mock_hs._advance(0.2)
+		ctl.advance(0.2)
 		finishers[1]()
 	end)
 
@@ -583,6 +497,6 @@ end)
 describe("init", function()
 	it("logs the loaded version", function()
 		assert.are.equal(AppLauncher, AppLauncher:init())
-		assert.are.same({ "Loaded AppLauncher vdev" }, AppLauncher.log._infos)
+		assert.are.same({ "Loaded AppLauncher vdev" }, ctl.logged("info"))
 	end)
 end)
