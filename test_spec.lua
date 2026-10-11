@@ -4,7 +4,6 @@ local hs_mock = require("hs_mock")
 
 local ctl
 local AppLauncher
-local launched
 
 local HYPER = { "ctrl", "alt", "cmd" }
 
@@ -24,8 +23,8 @@ before_each(function()
 	hs, ctl = hs_mock.new()
 	_G.hs = hs
 
-	launched = {}
-	hs.application.launchOrFocus = function(name) table.insert(launched, name) end
+	-- Local, not in hs_mock: this asserts AppLauncher's own lookups are exact; it
+	-- isn't a fake of Hammerspoon.
 	local find = hs.application.find
 	hs.application.find = function(name, exact)
 		assert.is_true(exact, "application lookup must be exact")
@@ -119,7 +118,7 @@ describe("app mappings", function()
 
 		assert.are.same({ true }, slack._activated)
 		assert.are.equal(0, slack._raised)
-		assert.are.same({}, launched)
+		assert.are.same({}, ctl.launched)
 	end)
 
 	it("also raises each window when raiseWindows is true", function()
@@ -149,7 +148,7 @@ describe("app mappings", function()
 		AppLauncher:registerMappings(HYPER, { { key = "s", app = "Slack" } })
 
 		press("s")
-		assert.are.same({ "Slack" }, launched)
+		assert.are.same({ "Slack" }, ctl.launched)
 
 		local slack = makeApp()
 		ctl.apps.Slack = slack
@@ -166,7 +165,7 @@ describe("app mappings", function()
 
 		press("s")
 
-		assert.are.same({ "Slack" }, launched)
+		assert.are.same({ "Slack" }, ctl.launched)
 		assert.are.same({}, slack._activated)
 	end)
 
@@ -177,7 +176,7 @@ describe("app mappings", function()
 
 		press("s")
 
-		assert.are.same({ "Slack" }, launched)
+		assert.are.same({ "Slack" }, ctl.launched)
 		assert.are.same({}, slack._activated)
 	end)
 end)
